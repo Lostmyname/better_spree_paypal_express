@@ -3,6 +3,7 @@ module Spree
     ssl_allowed
 
     before_filter :load_order, only: [:confirm, :express]
+    before_filter :apply_coupon_code, only: [:express]
 
     def express
       items = @order.line_items.map(&method(:line_item))
