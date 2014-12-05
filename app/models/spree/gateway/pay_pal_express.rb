@@ -71,15 +71,8 @@ module Spree
     end
 
     def refund(payment, amount)
-      refund_type = payment.amount == amount.to_f ? "Full" : "Partial"
-      refund_transaction = provider.build_refund_transaction({
-        :TransactionID => payment.source.transaction_id,
-        :RefundType => refund_type,
-        :Amount => {
-          :currencyID => payment.currency,
-          :value => amount },
-        :RefundSource => "any" })
-      refund_transaction_response = provider.refund_transaction(refund_transaction)
+      refund_transaction_response = process_refund(payment, amount)
+
       if refund_transaction_response.success?
         payment.source.update_attributes({
           :refunded_at => Time.now,
@@ -98,6 +91,39 @@ module Spree
         )
       end
       refund_transaction_response
+    end
+
+    def credit(amount_cents, response_code, options)
+      order_id, payment_id = options[:order_id].split("-")
+      payment = Spree::Payment.where(identifier: payment_id).first
+      if payment
+        response = process_refund(payment, (amount_cents.to_f / 100.0))
+        if response.success?
+          response.instance_eval do
+            def authorization
+              nil
+            end
+          end
+        end
+        response
+      else
+        raise "Payment #{payment_id} not found"
+      end
+    end
+
+    private
+    def process_refund(payment, amount)
+      refund_type = payment.amount == amount.to_f ? "Full" : "Partial"
+
+      refund_transaction = provider.build_refund_transaction({
+        :TransactionID => payment.source.transaction_id,
+        :RefundType => refund_type,
+        :Amount => {
+          :currencyID => payment.currency,
+          :value => amount },
+        :RefundSource => "any" })
+
+      provider.refund_transaction(refund_transaction)
     end
   end
 end
