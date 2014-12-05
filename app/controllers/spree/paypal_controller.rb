@@ -2,20 +2,21 @@ module Spree
   class PaypalController < StoreController
     ssl_allowed
 
+    before_filter :load_order, only: [:confirm, :express]
+
     def express
-      order = current_order || raise(ActiveRecord::RecordNotFound)
-      items = order.line_items.map(&method(:line_item))
+      items = @order.line_items.map(&method(:line_item))
 
-      tax_adjustments = order.all_adjustments.tax.additional
-      shipping_adjustments = order.all_adjustments.shipping
+      tax_adjustments = @order.all_adjustments.tax.additional
+      shipping_adjustments = @order.all_adjustments.shipping
 
-      order.all_adjustments.eligible.each do |adjustment|
+      @order.all_adjustments.eligible.each do |adjustment|
         next if (tax_adjustments + shipping_adjustments).include?(adjustment)
         items << {
           :Name => adjustment.label,
           :Quantity => 1,
           :Amount => {
-            :currencyID => order.currency,
+            :currencyID => @order.currency,
             :value => adjustment.amount
           }
         }
@@ -28,7 +29,7 @@ module Spree
       items.reject! do |item|
         item[:Amount][:value].zero?
       end
-      pp_request = provider.build_set_express_checkout(express_checkout_request_details(order, items))
+      pp_request = provider.build_set_express_checkout(express_checkout_request_details(@order, items))
 
       begin
         pp_response = provider.set_express_checkout(pp_request)
@@ -45,8 +46,7 @@ module Spree
     end
 
     def confirm
-      order = current_order || raise(ActiveRecord::RecordNotFound)
-      order.payments.create!({
+      @order.payments.create!({
         :source => Spree::PaypalExpressCheckout.create({
           :token => params[:token],
           :payer_id => params[:PayerID]
@@ -54,21 +54,21 @@ module Spree
         :amount => order.total,
         :payment_method => payment_method
       })
-      order.next
-      if order.complete?
+      @order.next
+      if @order.complete?
         flash.notice = Spree.t(:order_processed_successfully)
         flash[:commerce_tracking] = "nothing special"
         session[:order_id] = nil
-        redirect_to completion_route(order)
+        redirect_to completion_route(@order)
       else
-        redirect_to checkout_state_path(order.state)
+        redirect_to checkout_state_path(@order.state)
       end
     end
 
     def cancel
       flash[:notice] = Spree.t('flash.cancel', :scope => 'paypal')
-      order = current_order || raise(ActiveRecord::RecordNotFound)
-      redirect_to checkout_state_path(order.state, paypal_cancel_token: params[:token])
+      load_order
+      redirect_to checkout_state_path(@order.state, paypal_cancel_token: params[:token])
     end
 
     private
